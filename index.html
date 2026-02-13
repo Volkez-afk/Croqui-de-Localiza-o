@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Consulta de Quadras e Lotes - Botucatu</title>
+    <style>
+        * { box-sizing: border-box; font-family: Arial, sans-serif; }
+        body { background: #f5f5f5; margin: 0; padding: 20px; }
+        .container { max-width: 1200px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        h1, h2 { color: #2c3e50; }
+        .search-box { display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; align-items: flex-end; }
+        .search-box input { padding: 8px; border: 1px solid #bdc3c7; border-radius: 4px; width: 120px; }
+        .search-box button { padding: 8px 16px; background: #3498db; color: white; border: none; border-radius: 4px; cursor: pointer; }
+        .search-box button:hover { background: #2980b9; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 14px; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        th { background-color: #ecf0f1; font-weight: 600; }
+        .admin-area { margin-top: 40px; border-top: 2px solid #bdc3c7; padding-top: 20px; }
+        .login-box { background: #ecf0f1; padding: 15px; border-radius: 5px; margin-bottom: 20px; display: inline-block; }
+        .login-box input { padding: 5px; margin-right: 10px; width: 120px; }
+        .login-box button { padding: 5px 10px; cursor: pointer; }
+        .admin-controls { display: none; }
+        .admin-controls.visible { display: block; }
+        .form-group { margin-bottom: 15px; max-width: 400px; }
+        .form-group label { display: block; font-weight: 600; margin-bottom: 5px; }
+        .form-group input, .form-group select { width: 100%; padding: 8px; border: 1px solid #bdc3c7; border-radius: 4px; }
+        .form-group button { padding: 8px 16px; background: #27ae60; color: white; border: none; border-radius: 4px; cursor: pointer; }
+        .form-group button:hover { background: #2ecc71; }
+        .btn-danger { background: #e74c3c; }
+        .btn-danger:hover { background: #c0392b; }
+        .btn-warning { background: #f39c12; }
+        .btn-warning:hover { background: #e67e22; }
+        .inline-buttons { display: flex; gap: 5px; flex-wrap: wrap; }
+        .modal { display: none; position: fixed; z-index: 1; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5); }
+        .modal-content { background-color: white; margin: 5% auto; padding: 20px; border-radius: 5px; width: 50%; max-width: 500px; }
+        .close { float: right; font-size: 28px; cursor: pointer; }
+        .error { color: #e74c3c; margin-top: 5px; font-size: 0.9em; }
+        .success { color: #27ae60; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Consulta de Quadras e Lotes - Prefeitura de Botucatu</h1>
+
+        <!-- Barra de pesquisa pública -->
+        <div class="search-box">
+            <input type="number" id="searchSetor" placeholder="Setor (2 dígitos)" min="1" max="99">
+            <input type="number" id="searchQuadra" placeholder="Quadra (4 dígitos)" min="1" max="9999">
+            <input type="number" id="searchLote" placeholder="Lote (4 dígitos)" min="1" max="9999">
+            <button id="btnPesquisar">Pesquisar</button>
+            <button id="btnLimpar">Limpar</button>
+        </div>
+
+        <!-- Resultados da pesquisa -->
+        <div id="resultados">
+            <p>Faça uma pesquisa para visualizar os dados.</p>
+        </div>
+
+        <!-- Área administrativa -->
+        <div class="admin-area">
+            <div class="login-box" id="loginBox">
+                <label>Senha Admin: <input type="password" id="senhaAdmin" placeholder="Digite a senha"></label>
+                <button id="btnLogin">Entrar</button>
+                <button id="btnLogout" style="display:none;">Sair</button>
+                <span id="loginMsg" class="error"></span>
+            </div>
+
+            <div id="adminControls" class="admin-controls">
+                <h2>Área Administrativa</h2>
+                <div class="inline-buttons">
+                    <button id="btnAdicionarSetor">Adicionar Setor</button>
+                    <button id="btnAdicionarQuadra">Adicionar Quadra</button>
+                    <button id="btnAdicionarLote">Adicionar Lote</button>
+                </div>
+                <hr>
+                <div id="adminForms" style="margin-top:20px;">
+                    <!-- Formulários serão inseridos aqui dinamicamente -->
+                </div>
+                <p><small>Para editar/excluir, pesquise e use os botões na tabela.</small></p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal para edição/exclusão -->
+    <div id="modalEdicao" class="modal">
+        <div class="modal-content">
+            <span class="close" id="fecharModal">&times;</span>
+            <h3 id="modalTitulo">Editar</h3>
+            <div id="modalConteudo"></div>
+        </div>
+    </div>
+
+    <!-- Carrega o módulo principal -->
+    <script type="module">
+        // Importa o cliente Supabase do arquivo separado
+        import { supabase } from './supabase.js';
+
+        // ========== VARIÁVEIS GLOBAIS ==========
+        let isAdmin = false; // controle de sessão admin
+        let setoresCache = [];
+        let quadrasCache = [];
+
+        // ========== ELEMENTOS DOM ==========
+        const resultadosDiv = document.getElementById('resultados');
+        const adminControls = document.getElementById('adminControls');
+        const btnLogin = document.getElementById('btnLogin');
+        const btnLogout = document.getElementById('btnLogout');
+        const senhaInput = document.getElementById('senhaAdmin');
+        const loginMsg = document.getElementById('loginMsg');
+        const modal = document.getElementById('modalEdicao');
+        const modalTitulo = document.getElementById('modalTitulo');
+        const modalConteudo = document.getElementById('modalConteudo');
+        const fecharModal = document.getElementById('fecharModal');
+
+        // ========== LOGIN SIMPLES (senha fixa 222) ==========
+        btnLogin.addEventListener('click', () => {
+            if (senhaInput.value === '222') {
+                isAdmin = true;
+                adminControls.classList.add('visible');
+                btnLogin.style.display = 'none';
+                btnLogout.style.display = 'inline-block';
+                senhaInput.disabled = true;
+                loginMsg.innerHTML = '';
+                carregarSetores(); // pré-carrega setores para os formulários
+            } else {
+                loginMsg.innerHTML = 'Senha incorreta!';
+            }
+        });
+
+        btnLogout.addEventListener('click', () => {
+            isAdmin = false;
+            adminControls.classList.remove('visible');
+            btnLogin.style.display = 'inline-block';
+            btnLogout.style.display = 'none';
+            senhaInput.disabled = false;
+            senhaInput.value = '';
+            loginMsg.innerHTML = '';
+            document.getElementById('adminForms').innerHTML = ''; // limpa formulários
+            fecharModal.click(); // fecha modal se aberto
+        });
+
+        fecharModal.addEventListener('click', () => {
+            modal.style.display = 'none';
+        });
+
+        window.addEventListener('click', (e) => {
+            if (e.target === modal) {
+                modal.style.display = 'none';
+            }
+        });
+
+        // ========== PESQUISA ==========
+        async function pesquisar() {
+            const setor = document.getElementById('searchSetor').value;
+            const quadra = document.getElementById('searchQuadra').value;
+            const lote = document.getElementById('searchLote').value;
+
+            let query = supabase
+                .from('lotes')
+                .select(`
+                    *,
+                    quadra:quadras!inner (
+                        id,
+                        numero,
+                        arquivo_url,
+                        setor:setores!inner (id, numero)
+                    )
+                `);
+
+            if (setor) query = query.eq('quadra.setor.numero', parseInt(setor));
+            if (quadra) query = query.eq('quadra.numero', parseInt(quadra));
+            if (lote) query = query.eq('numero', parseInt(lote));
+
+            const { data, error } = await query;
+            if (error) {
+                console.error(error);
+                resultadosDiv.innerHTML = '<p class="error">Erro na pesquisa.</p>';
+                return;
+            }
+            exibirResultados(data);
+        }
+
+        function exibirResultados(lotes) {
+            if (!lotes || lotes.length === 0) {
+                resultadosDiv.innerHTML = '<p>Nenhum resultado encontrado.</p>';
+                return;
+            }
+
+            let html = '<table><thead><tr><th>Setor</th><th>Quadra</th><th>Lote</th><th>Desmembramento</th><th>Aprovação Projeto</th><th>Habite-se</th><th>Anexo</th>';
+            if (isAdmin) html += '<th>Ações</th>';
+            html += '</tr></thead><tbody>';
+
+            lotes.forEach(l => {
+                html += `<tr>
+                    <td>${l.quadra.setor.numero}</td>
+                    <td>${l.quadra.numero}</td>
+                    <td>${l.numero}</td>
+                    <td>${l.processo_desmembramento || ''}</td>
+                    <td>${l.aprovacao_projeto || ''}</td>
+                    <td>${l.habite_se || ''}</td>
+                    <td>${l.quadra.arquivo_url ? `<a href="${l.quadra.arquivo_url}" target="_blank">Ver anexo</a>` : ''}</td>`;
+                if (isAdmin) {
+                    html += `<td class="inline-buttons">
+                        <button class="btn-warning" onclick="editarLote('${l.id}')">Editar</button>
+                        <button class="btn-danger" onclick="excluirLote('${l.id}')">Excluir</button>
+                    </td>`;
+                }
+                html += '</tr>';
+            });
+            html += '</tbody></table>';
+            resultadosDiv.innerHTML = html;
+        }
+
+        // Expõe funções globalmente para os botões de ação (por simplicidade)
+        window.editarLote = (id) => abrirModalLote(id);
+        window.excluirLote = async (id) => {
+            if (!confirm('Tem certeza que deseja excluir este lote?')) return;
+            const { error } = await supabase.from('lotes').delete().eq('id', id);
+            if (error) alert('Erro: ' + error.message);
+            else pesquisar(); // atualiza resultados
+        };
+
+        document.getElementById('btnPesquisar').addEventListener('click', pesquisar);
+        document.getElementById('btnLimpar').addEventListener('click', () => {
+            document.getElementById('searchSetor').value = '';
+            document.getElementById('searchQuadra').value = '';
+            document.getElementById('searchLote').value = '';
+            resultadosDiv.innerHTML = '<p>Faça uma pesquisa para visualizar os dados.</p>';
+        });
+
+        // ========== FUNÇÕES ADMIN ==========
+        async function carregarSetores() {
+            const { data, error } = await supabase.from('setores').select('id, numero').order('numero');
+            if (error) console.error(error);
+            else setoresCache = data;
+        }
+
+        async function carregarQuadras(setorId) {
+            if (!setorId) return [];
+            const { data, error } = await supabase.from('quadras').select('id, numero').eq('setor_id', setorId).order('numero');
+            if (error) console.error(error);
+            else quadrasCache = data;
+            return data;
+        }
+
+        // Botões para abrir formulários
+        document.getElementById('btnAdicionarSetor').addEventListener('click', () => {
+            document.getElementById('adminForms').innerHTML = `
+                <div class="form-group">
+                    <h3>Adicionar Setor</h3>
+                    <label>Número (2 dígitos):</label>
+                    <input type="number" id="novoSetorNum" min="1" max="99">
+                    <button id="salvarSetor">Salvar</button>
+                    <button class="btn-danger" onclick="document.getElementById('adminForms').innerHTML=''">Cancelar</button>
+                    <div id="msgSetor" class="error"></div>
+                </div>
+            `;
+            document.getElementById('salvarSetor').addEventListener('click', async () => {
+                const num = parseInt(document.getElementById('novoSetorNum').value);
+                if (isNaN(num) || num < 1 || num > 99) {
+                    document.getElementById('msgSetor').innerHTML = 'Número inválido (1-99)';
+                    return;
+                }
+                const { error } = await supabase.from('setores').insert({ numero: num });
+                if (error) document.getElementById('msgSetor').innerHTML = 'Erro: ' + error.message;
+                else {
+                    document.getElementById('msgSetor').innerHTML = 'Setor adicionado!';
+                    carregarSetores();
+                    setTimeout(() => document.getElementById('adminForms').innerHTML = '', 1500);
+                }
+            });
+        });
+
+        document.getElementById('btnAdicionarQuadra').addEventListener('click', async () => {
+            await carregarSetores();
+            let options = '<option value="">Selecione</option>';
+            setoresCache.forEach(s => options += `<option value="${s.id}">${s.numero}</option>`);
+            document.getElementById('adminForms').innerHTML = `
+                <div class="form-group">
+                    <h3>Adicionar Quadra</h3>
+                    <label>Setor:</label>
+                    <select id="quadraSetorSelect">${options}</select>
+                    <label>Número da Quadra (4 dígitos):</label>
+                    <input type="number" id="novaQuadraNum" min="1" max="9999">
+                    <label>Anexo (imagem/PDF):</label>
+                    <input type="file" id="quadraArquivo" accept="image/*,application/pdf">
+                    <button id="salvarQuadra">Salvar</button>
+                    <button class="btn-danger" onclick="document.getElementById('adminForms').innerHTML=''">Cancelar</button>
+                    <div id="msgQuadra" class="error"></div>
+                </div>
+            `;
+            document.getElementById('salvarQuadra').addEventListener('click', async () => {
+                const setorId = document.getElementById('quadraSetorSelect').value;
+                const num = parseInt(document.getElementById('novaQuadraNum').value);
+                const file = document.getElementById('quadraArquivo').files[0];
+                if (!setorId || isNaN(num) || num < 1 || num > 9999) {
+                    document.getElementById('msgQuadra').innerHTML = 'Preencha todos os campos corretamente.';
+                    return;
+                }
+
+                let arquivo_url = null;
+                if (file) {
+                    const fileExt = file.name.split('.').pop();
+                    const fileName = `setor_${setorId}/quadra_${num}.${fileExt}`;
+                    const { error: uploadError } = await supabase.storage
+                        .from('quadras-arquivos')
+                        .upload(fileName, file);
+                    if (uploadError) {
+                        document.getElementById('msgQuadra').innerHTML = 'Erro upload: ' + uploadError.message;
+                        return;
+                    }
+                    const { data: urlData } = supabase.storage.from('quadras-arquivos').getPublicUrl(fileName);
+                    arquivo_url = urlData.publicUrl;
+                }
+
+                const { error } = await supabase.from('quadras').insert({
+                    setor_id: setorId,
+                    numero: num,
+                    arquivo_url
+                });
+                if (error) document.getElementById('msgQuadra').innerHTML = 'Erro: ' + error.message;
+                else {
+                    document.getElementById('msgQuadra').innerHTML = 'Quadra adicionada!';
+                    setTimeout(() => document.getElementById('adminForms').innerHTML = '', 1500);
+                }
+            });
+        });
+
+        document.getElementById('btnAdicionarLote').addEventListener('click', async () => {
+            await carregarSetores();
+            let setorOptions = '<option value="">Selecione setor</option>';
+            setoresCache.forEach(s => setorOptions += `<option value="${s.id}">${s.numero}</option>`);
+            document.getElementById('adminForms').innerHTML = `
+                <div class="form-group">
+                    <h3>Adicionar Lote</h3>
+                    <label>Setor:</label>
+                    <select id="loteSetorSelect">${setorOptions}</select>
+                    <label>Quadra:</label>
+                    <select id="loteQuadraSelect" disabled><option>Primeiro selecione setor</option></select>
+                    <label>Número do Lote (4 dígitos):</label>
+                    <input type="number" id="novoLoteNum" min="1" max="9999">
+                    <label>Processo Desmembramento:</label>
+                    <input type="text" id="processoDesmembramento">
+                    <label>Aprovação Projeto:</label>
+                    <input type="text" id="aprovacaoProjeto">
+                    <label>Habite-se:</label>
+                    <input type="text" id="habiteSe">
+                    <button id="salvarLote">Salvar</button>
+                    <button class="btn-danger" onclick="document.getElementById('adminForms').innerHTML=''">Cancelar</button>
+                    <div id="msgLote" class="error"></div>
+                </div>
+            `;
+
+            const setorSelect = document.getElementById('loteSetorSelect');
+            const quadraSelect = document.getElementById('loteQuadraSelect');
+            setorSelect.addEventListener('change', async (e) => {
+                const setorId = e.target.value;
+                if (!setorId) {
+                    quadraSelect.innerHTML = '<option>Selecione setor primeiro</option>';
+                    quadraSelect.disabled = true;
+                    return;
+                }
+                const quadras = await carregarQuadras(setorId);
+                let opts = '<option value="">Selecione quadra</option>';
+                quadras.forEach(q => opts += `<option value="${q.id}">${q.numero}</option>`);
+                quadraSelect.innerHTML = opts;
+                quadraSelect.disabled = false;
+            });
+
+            document.getElementById('salvarLote').addEventListener('click', async () => {
+                const quadraId = document.getElementById('loteQuadraSelect').value;
+                const loteNum = parseInt(document.getElementById('novoLoteNum').value);
+                if (!quadraId || isNaN(loteNum) || loteNum < 1 || loteNum > 9999) {
+                    document.getElementById('msgLote').innerHTML = 'Preencha setor, quadra e lote corretamente.';
+                    return;
+                }
+                const { error } = await supabase.from('lotes').insert({
+                    quadra_id: quadraId,
+                    numero: loteNum,
+                    processo_desmembramento: document.getElementById('processoDesmembramento').value,
+                    aprovacao_projeto: document.getElementById('aprovacaoProjeto').value,
+                    habite_se: document.getElementById('habiteSe').value
+                });
+                if (error) document.getElementById('msgLote').innerHTML = 'Erro: ' + error.message;
+                else {
+                    document.getElementById('msgLote').innerHTML = 'Lote adicionado!';
+                    setTimeout(() => document.getElementById('adminForms').innerHTML = '', 1500);
+                }
+            });
+        });
+
+        // ========== EDIÇÃO VIA MODAL ==========
+        async function abrirModalLote(loteId) {
+            const { data: lote, error } = await supabase
+                .from('lotes')
+                .select('*, quadra:quadras!inner(setor_id)')
+                .eq('id', loteId)
+                .single();
+            if (error) {
+                alert('Erro ao carregar lote');
+                return;
+            }
+            // Carregar setores e quadras para os selects
+            await carregarSetores();
+            const quadrasDoSetor = await carregarQuadras(lote.quadra.setor_id);
+            let quadraOptions = '';
+            quadrasDoSetor.forEach(q => {
+                quadraOptions += `<option value="${q.id}" ${q.id === lote.quadra_id ? 'selected' : ''}>${q.numero}</option>`;
+            });
+
+            modalTitulo.innerHTML = 'Editar Lote';
+            modalConteudo.innerHTML = `
+                <div class="form-group">
+                    <label>Quadra:</label>
+                    <select id="editQuadraSelect">${quadraOptions}</select>
+                    <label>Número do Lote:</label>
+                    <input type="number" id="editLoteNum" value="${lote.numero}" min="1" max="9999">
+                    <label>Processo Desmembramento:</label>
+                    <input type="text" id="editProcesso" value="${lote.processo_desmembramento || ''}">
+                    <label>Aprovação Projeto:</label>
+                    <input type="text" id="editAprovacao" value="${lote.aprovacao_projeto || ''}">
+                    <label>Habite-se:</label>
+                    <input type="text" id="editHabite" value="${lote.habite_se || ''}">
+                    <button id="salvarEdicao">Salvar</button>
+                    <button class="btn-danger" id="excluirNoModal">Excluir</button>
+                </div>
+            `;
+            modal.style.display = 'block';
+
+            document.getElementById('salvarEdicao').addEventListener('click', async () => {
+                const novaQuadraId = document.getElementById('editQuadraSelect').value;
+                const novoNumero = parseInt(document.getElementById('editLoteNum').value);
+                const updates = {
+                    quadra_id: novaQuadraId,
+                    numero: novoNumero,
+                    processo_desmembramento: document.getElementById('editProcesso').value,
+                    aprovacao_projeto: document.getElementById('editAprovacao').value,
+                    habite_se: document.getElementById('editHabite').value
+                };
+                const { error } = await supabase.from('lotes').update(updates).eq('id', loteId);
+                if (error) alert('Erro: ' + error.message);
+                else {
+                    modal.style.display = 'none';
+                    pesquisar();
+                }
+            });
+
+            document.getElementById('excluirNoModal').addEventListener('click', async () => {
+                if (confirm('Excluir este lote?')) {
+                    await supabase.from('lotes').delete().eq('id', loteId);
+                    modal.style.display = 'none';
+                    pesquisar();
+                }
+            });
+        }
+
+        // Inicialização: carrega setores para uso futuro
+        carregarSetores();
+    </script>
+</body>
+</html>
