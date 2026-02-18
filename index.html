@@ -559,7 +559,7 @@
         </div>
     </div>
 
-    <!-- Script (idêntico ao anterior, apenas com ajustes para exibir mensagens nos novos elementos) -->
+    <!-- Script (com a nova função de editar anexo) -->
     <script type="module">
         import { supabase } from './supabase.js';
 
@@ -666,6 +666,17 @@
             html += '</tr></thead><tbody>';
 
             lotes.forEach(l => {
+                // Construir célula do anexo com botão de editar se admin
+                let anexoHtml = '';
+                if (l.quadra.arquivo_url) {
+                    anexoHtml = `<a href="${l.quadra.arquivo_url}" target="_blank" class="btn-icon btn-secondary" style="text-decoration: none;"><i class="fas fa-file-pdf"></i> Ver</a>`;
+                } else {
+                    anexoHtml = '-';
+                }
+                if (isAdmin) {
+                    anexoHtml += ` <button class="btn-icon btn-warning" onclick="editarAnexoQuadra('${l.quadra.id}')" title="Editar anexo da quadra"><i class="fas fa-edit"></i></button>`;
+                }
+
                 html += `<tr>
                     <td>${l.quadra.setor.numero}</td>
                     <td>${l.quadra.numero}</td>
@@ -673,7 +684,7 @@
                     <td>${l.processo_desmembramento || '-'}</td>
                     <td>${l.aprovacao_projeto || '-'}</td>
                     <td>${l.habite_se || '-'}</td>
-                    <td>${l.quadra.arquivo_url ? `<a href="${l.quadra.arquivo_url}" target="_blank" class="btn-icon btn-secondary" style="text-decoration: none;"><i class="fas fa-file-pdf"></i> Ver</a>` : '-'}</td>`;
+                    <td>${anexoHtml}</td>`;
                 if (isAdmin) {
                     html += `<td class="actions-cell">
                         <button class="btn-icon btn-warning" onclick="editarLote('${l.id}')"><i class="fas fa-edit"></i> Editar</button>
@@ -991,6 +1002,94 @@
                 }
             });
         }
+
+        // NOVA FUNÇÃO: Editar anexo da quadra
+        window.editarAnexoQuadra = async (quadraId) => {
+            // Buscar dados da quadra para saber o setor e número
+            const { data: quadra, error } = await supabase
+                .from('quadras')
+                .select('*, setor:setores!inner(numero)')
+                .eq('id', quadraId)
+                .single();
+            if (error) {
+                alert('Erro ao carregar quadra: ' + error.message);
+                return;
+            }
+
+            // Preencher o modal com um formulário simples de upload
+            modalTitulo.innerHTML = `Editar Anexo - Setor ${quadra.setor.numero} / Quadra ${quadra.numero}`;
+            modalConteudo.innerHTML = `
+                <div class="form-group">
+                    <label>Novo anexo (imagem/PDF):</label>
+                    <input type="file" id="novoAnexoQuadra" accept="image/*,application/pdf">
+                    ${quadra.arquivo_url ? `<p style="margin-top:8px;">Anexo atual: <a href="${quadra.arquivo_url}" target="_blank">Visualizar</a></p>` : ''}
+                </div>
+                <div class="form-actions">
+                    <button class="btn btn-success" id="salvarNovoAnexo"><i class="fas fa-upload"></i> Enviar e Substituir</button>
+                    <button class="btn btn-secondary" onclick="document.getElementById('modalEdicao').style.display='none'">Cancelar</button>
+                </div>
+                <div id="msgAnexo" class="message" style="display: none;"></div>
+            `;
+            modal.style.display = 'flex';
+
+            document.getElementById('salvarNovoAnexo').addEventListener('click', async () => {
+                const fileInput = document.getElementById('novoAnexoQuadra');
+                const file = fileInput.files[0];
+                const msg = document.getElementById('msgAnexo');
+                if (!file) {
+                    msg.style.display = 'block';
+                    msg.className = 'message error';
+                    msg.innerHTML = '<i class="fas fa-exclamation-circle"></i> Selecione um arquivo.';
+                    return;
+                }
+
+                // Upload do novo arquivo (sobrescreve ou cria novo)
+                const fileExt = file.name.split('.').pop();
+                const fileName = `setor_${quadra.setor_id}/quadra_${quadra.numero}.${fileExt}`; // mesmo padrão usado ao criar
+
+                // Remover arquivo antigo se existir (opcional, para não acumular)
+                if (quadra.arquivo_url) {
+                    // Extrai o path do arquivo antigo (ajuste se necessário)
+                    const oldPath = quadra.arquivo_url.split('/').slice(-2).join('/'); // pega "setor_X/quadra_Y.ext"
+                    await supabase.storage.from('quadras-arquivos').remove([oldPath]);
+                }
+
+                // Fazer upload do novo
+                const { error: uploadError } = await supabase.storage
+                    .from('quadras-arquivos')
+                    .upload(fileName, file, { upsert: true }); // upsert substitui se existir
+                if (uploadError) {
+                    msg.style.display = 'block';
+                    msg.className = 'message error';
+                    msg.innerHTML = '<i class="fas fa-exclamation-circle"></i> Erro no upload: ' + uploadError.message;
+                    return;
+                }
+
+                // Obter URL pública
+                const { data: urlData } = supabase.storage.from('quadras-arquivos').getPublicUrl(fileName);
+                const novaUrl = urlData.publicUrl;
+
+                // Atualizar o campo arquivo_url na tabela quadras
+                const { error: updateError } = await supabase
+                    .from('quadras')
+                    .update({ arquivo_url: novaUrl })
+                    .eq('id', quadraId);
+                if (updateError) {
+                    msg.style.display = 'block';
+                    msg.className = 'message error';
+                    msg.innerHTML = '<i class="fas fa-exclamation-circle"></i> Erro ao atualizar: ' + updateError.message;
+                    return;
+                }
+
+                msg.style.display = 'block';
+                msg.className = 'message success';
+                msg.innerHTML = '<i class="fas fa-check-circle"></i> Anexo atualizado com sucesso!';
+                setTimeout(() => {
+                    modal.style.display = 'none';
+                    pesquisar(); // recarrega a tabela para mostrar o novo anexo
+                }, 1500);
+            });
+        };
 
         carregarSetores();
     </script>
