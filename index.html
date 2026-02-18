@@ -559,7 +559,7 @@
         </div>
     </div>
 
-    <!-- Script (com a nova função de editar anexo) -->
+    <!-- Script (com a nova funcionalidade de perguntar por outro lote) -->
     <script type="module">
         import { supabase } from './supabase.js';
 
@@ -589,9 +589,8 @@
                 senhaInput.disabled = true;
                 loginMsg.style.display = 'none';
                 carregarSetores();
-                // Reexibir resultados com ações se houver pesquisa
                 if (resultadosDiv.innerHTML.includes('table')) {
-                    pesquisar(); // recarrega para mostrar botões de ação
+                    pesquisar();
                 }
             } else {
                 loginMsg.style.display = 'block';
@@ -610,7 +609,6 @@
             loginMsg.style.display = 'none';
             document.getElementById('adminForms').innerHTML = '';
             fecharModal.click();
-            // Recarrega resultados sem botões de ação
             pesquisar();
         });
 
@@ -666,7 +664,6 @@
             html += '</tr></thead><tbody>';
 
             lotes.forEach(l => {
-                // Construir célula do anexo com botão de editar se admin
                 let anexoHtml = '';
                 if (l.quadra.arquivo_url) {
                     anexoHtml = `<a href="${l.quadra.arquivo_url}" target="_blank" class="btn-icon btn-secondary" style="text-decoration: none;"><i class="fas fa-file-pdf"></i> Ver</a>`;
@@ -925,7 +922,21 @@
                     msg.style.display = 'block';
                     msg.className = 'message success';
                     msg.innerHTML = '<i class="fas fa-check-circle"></i> Lote adicionado!';
-                    setTimeout(() => document.getElementById('adminForms').innerHTML = '', 1500);
+
+                    // NOVA FUNCIONALIDADE: Perguntar se deseja adicionar outro lote na mesma quadra
+                    const adicionarOutro = confirm('Deseja adicionar outro lote nesta mesma quadra?');
+                    if (adicionarOutro) {
+                        // Esconde a mensagem de sucesso e limpa apenas os campos do lote
+                        msg.style.display = 'none';
+                        document.getElementById('novoLoteNum').value = '';
+                        document.getElementById('processoDesmembramento').value = '';
+                        document.getElementById('aprovacaoProjeto').value = '';
+                        document.getElementById('habiteSe').value = '';
+                        document.getElementById('novoLoteNum').focus();
+                    } else {
+                        // Se não quiser, fecha o formulário após 1.5 segundos
+                        setTimeout(() => document.getElementById('adminForms').innerHTML = '', 1500);
+                    }
                 }
             });
         });
@@ -1003,9 +1014,8 @@
             });
         }
 
-        // NOVA FUNÇÃO: Editar anexo da quadra
+        // Função para editar anexo da quadra
         window.editarAnexoQuadra = async (quadraId) => {
-            // Buscar dados da quadra para saber o setor e número
             const { data: quadra, error } = await supabase
                 .from('quadras')
                 .select('*, setor:setores!inner(numero)')
@@ -1016,7 +1026,6 @@
                 return;
             }
 
-            // Preencher o modal com um formulário simples de upload
             modalTitulo.innerHTML = `Editar Anexo - Setor ${quadra.setor.numero} / Quadra ${quadra.numero}`;
             modalConteudo.innerHTML = `
                 <div class="form-group">
@@ -1043,21 +1052,17 @@
                     return;
                 }
 
-                // Upload do novo arquivo (sobrescreve ou cria novo)
                 const fileExt = file.name.split('.').pop();
-                const fileName = `setor_${quadra.setor_id}/quadra_${quadra.numero}.${fileExt}`; // mesmo padrão usado ao criar
+                const fileName = `setor_${quadra.setor_id}/quadra_${quadra.numero}.${fileExt}`;
 
-                // Remover arquivo antigo se existir (opcional, para não acumular)
                 if (quadra.arquivo_url) {
-                    // Extrai o path do arquivo antigo (ajuste se necessário)
-                    const oldPath = quadra.arquivo_url.split('/').slice(-2).join('/'); // pega "setor_X/quadra_Y.ext"
+                    const oldPath = quadra.arquivo_url.split('/').slice(-2).join('/');
                     await supabase.storage.from('quadras-arquivos').remove([oldPath]);
                 }
 
-                // Fazer upload do novo
                 const { error: uploadError } = await supabase.storage
                     .from('quadras-arquivos')
-                    .upload(fileName, file, { upsert: true }); // upsert substitui se existir
+                    .upload(fileName, file, { upsert: true });
                 if (uploadError) {
                     msg.style.display = 'block';
                     msg.className = 'message error';
@@ -1065,11 +1070,9 @@
                     return;
                 }
 
-                // Obter URL pública
                 const { data: urlData } = supabase.storage.from('quadras-arquivos').getPublicUrl(fileName);
                 const novaUrl = urlData.publicUrl;
 
-                // Atualizar o campo arquivo_url na tabela quadras
                 const { error: updateError } = await supabase
                     .from('quadras')
                     .update({ arquivo_url: novaUrl })
@@ -1086,7 +1089,7 @@
                 msg.innerHTML = '<i class="fas fa-check-circle"></i> Anexo atualizado com sucesso!';
                 setTimeout(() => {
                     modal.style.display = 'none';
-                    pesquisar(); // recarrega a tabela para mostrar o novo anexo
+                    pesquisar();
                 }, 1500);
             });
         };
